@@ -33,7 +33,14 @@ def set_figure_params(savefig=False):
 # =============================================================================
 
 
-def get_root_path(external_disk=True, external_path=None, internal_path=None):
+def get_root_path():
+    root = os.environ.get("PROJECT_DATA_ROOT")
+    if not root:
+        raise EnvironmentError("Environment variable PROJECT_DATA_ROOT is not set.")
+    return Path(root)
+
+
+def get_root_path_old(external_disk=True, external_path=None, internal_path=None):
     if external_path is None:
         external_path = '/media/samy/Elements1/Proyectos/LauraHarsan/script_mc/'
     if internal_path is None:
@@ -73,7 +80,7 @@ def get_paths(
             - 'figures': Path to the figures directory.
             - 'fmodularity': Path to the modularity figures directory.
     """
-    root = get_root_path(external_disk, external_path, internal_path)
+    root = get_root_path()
     return {
         'root': root,
         'results': root / 'results',
