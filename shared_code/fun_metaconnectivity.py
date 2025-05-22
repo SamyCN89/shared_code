@@ -338,7 +338,7 @@ def fun_allegiance_communities(mc_data, n_runs=1000, gamma_pt=100, ref_name=None
     ) 
 
     # Sort the communities 
-    communities = communities[sort_idx] 
+    # communities = communities[sort_idx] 
     # Save the results if save_path and ref_name are provided
     if full_save_path:
         print(f"[cache] Saving allegiance communities to {full_save_path}")
@@ -404,26 +404,6 @@ def fun_allegiance_communities2(mc_data, n_runs=1000, gamma_pt=100, ref_name=Non
         )
 
     return communities, sort_idx, contingency_matrix
-#I need an handler of the data if is one mc data instance or there is mutiple of them
-# def allegiance_wrapper(mc_data, n_runs=1000, gamma_pt=100, ref_name=None, save_path=None, n_jobs=-1):
-#     """
-#     Compute allegiance communities from one or more MC matrices.
-#     """
-#     mc_data = mc_data[None, ...] if mc_data.ndim == 2 else mc_data  # Standardize to 3D
-#     # Compute allegiance communities
-#     allegiances = [fun_allegiance_communities(mc) for mc in mc_data]
-#     mean_allegiance = np.mean(allegiances, axis=0)
-#     communities, sort_idx, contingency = fun_allegiance_communities(mean_allegiance)
-#     communities = communities[sort_idx]
-#     # Save results if save_path and ref_name are provided
-#     if save_path and ref_name:
-#         np.savez_compressed(
-#             Path(save_path) / f"allegiance_{ref_name}.npz",
-#             communities=communities,
-#             sort_idx=sort_idx,
-#             contingency=contingency
-#         )
-#     return communities, sort_idx, contingency
 #%%
 def allegiance_wrapper_(mc_data, n_runs=1000, gamma_pt=100, ref_name=None, save_path=None, n_jobs=-1):
     """
@@ -447,6 +427,30 @@ def allegiance_wrapper_(mc_data, n_runs=1000, gamma_pt=100, ref_name=None, save_
 
 
     return communities, sort_idx, contingency
+
+#%%
+# Parallell cluster function of Allegiance communities
+
+
+def load_merged_allegiance(paths, window_size=9, lag=1):
+    """Load merged allegiance data. Use after running the merge_allegiance function.
+
+    Args:
+        paths (dict): Dictionary containing paths for the dataset.
+        window_size (int, optional): Window size used for the analysis. Defaults to 9.
+        lag (int, optional): Lag used for the analysis. Defaults to 1.
+
+    Returns:
+        tuple: A tuple containing the dfc_communities, sort_allegiances, and contingency_matrices.
+        
+    """
+    ts = np.load(paths['sorted'] / 'ts_and_meta_2m4m.npz', allow_pickle=True)['ts']
+    n_animals = len(ts)
+    n_regions = ts[0].shape[1]
+    filename = f'window_size={window_size}_lag={lag}_animals={n_animals}_regions={n_regions}'
+    path = paths['allegiance'] / f'merged_allegiance_{filename}.npz'
+    data = np.load(path)
+    return data['dfc_communities'], data['sort_allegiances'], data['contingency_matrices']
 
 #%%
 # =============================================================================
