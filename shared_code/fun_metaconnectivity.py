@@ -269,7 +269,7 @@ def allegiance_matrix_analysis(mc_data, n_runs=100, gamma_pt=10, cache_path=None
     argsort_allegancy_communities : ndarray
         Sorting indices by community.
     """
-    print('here',cache_path)
+    # print('here',cache_path)
     # contingency_matrix, gamma_mean, gamma_std = contingency_matrix_fun_old(
     contingency_matrix, _, _ = contingency_matrix_fun(
         n_runs=n_runs, 
