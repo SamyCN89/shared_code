@@ -19,8 +19,10 @@ Created on Fri Mar  8 15:45:43 2024
 # https://github.com/FunDyn/dFCwalk
 # =============================================================================
 
+from pathlib import Path
 import numpy as np
 import brainconn as bct
+
 from tqdm import tqdm
 import numexpr as ne
 from joblib import Parallel, delayed, parallel_backend
