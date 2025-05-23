@@ -23,7 +23,7 @@ import numpy as np
 import brainconn as bct
 from tqdm import tqdm
 import numexpr as ne
-from joblib import Parallel, delayed
+from joblib import Parallel, delayed, parallel_backend
 from collections import Counter
 
 from .fun_optimization import fast_corrcoef, fast_corrcoef_numba
@@ -98,6 +98,9 @@ def ts2fc(timeseries, format_data = '2D', method='pearson'):
         return fc[np.tril_indices_from(fc, k=-1)]
 
 #%%
+#===============================================================================
+# Dynamic functional connectivity stream Functions
+#===============================================================================
 def ts2dfc_stream(ts, window_size, lag=None, format_data='2D', method='pearson'):
     """
     Calculate dynamic functional connectivity stream (dfc_stream) from time series.
@@ -135,47 +138,7 @@ def ts2dfc_stream(ts, window_size, lag=None, format_data='2D', method='pearson')
 
     return dfc_stream
 
-def ts2dfc_stream_old(ts, windows_size, lag=None, format_data='2D', method='pearson'):
-    """
-    Calculate dynamic functional connectivity stream (dfc_stream) from time series data.
 
-    Parameters:
-    ts (array): Time series data of shape (t, n), where t is timepoints, n is regions.
-    windows_size (int): Window size to slide over the ts.
-    lag (int): Shift value for the window. Defaults to W if not specified.
-    format (str): Output format. '2D' for a (l, F) shape, '3D' for a (n, n, F) shape.
-
-    Returns:
-    dFCstream (array): Dynamic functional connectivity stream.
-    """
-
-    t_total, n = np.shape(ts)
-    #Not overlap
-    lag = lag or windows_size
-    # if lag is None:
-    #     lag = windows_size
-    # Calculate the number of frames/windows
-    frames = (t_total - windows_size)//lag + 1
-    n_pairs               = n * (n-1)//2 #number of pairwise correlations
-    
-    if format_data=='2D':
-        dfc_stream = np.empty((n_pairs, frames))
-    elif format_data=='3D':
-        dfc_stream = np.empty((n, n, frames))
-        
-
-    for k in range(frames):
-        wstart = k * lag
-        wstop = wstart + windows_size
-        if format_data =='2D':
-            dfc_stream[:, k]    = ts2fc(ts[wstart:wstop, :], '1D', method=method)  # Assuming TS2FC returns a vector
-        elif format_data == '3D':
-            dfc_stream[:, :, k] = ts2fc(ts[wstart:wstop, :], '2D',method=method)  # Assuming TS2FC returns a matrix
-    #         dfc_stream[:, :, k] = fc
-    return dfc_stream
-
-
-#%%
 def dfc_stream2fcd(dfc_stream):
     """
     Calculate the dynamic functional connectivity (dFC) matrix from a dfc_stream.
@@ -201,9 +164,91 @@ def dfc_stream2fcd(dfc_stream):
     
     return dfc
 
+def compute_dfc_stream(ts_data, window_size=7, lag=1, format_data='3D',save_path=None, n_jobs=-1):
+    """
+    This function calculates dynamic functional connectivity (DFC) streams from time-series data using 
+    a sliding window approach. It supports parallel computation and caching of results 
+    to optimize performance.
+
+    -----------
+    ts_data : np.ndarray
+        A 3D array of shape (n_animals, n_regions, n_timepoints) representing the 
+        time-series data for multiple animals and brain regions.
+    window_size : int, optional
+        The size of the sliding window used for dynamic functional connectivity (DFC) 
+        computation. Default is 7.
+    lag : int, optional
+        The lag parameter for time-series analysis. Default is 1.
+    return_dfc : bool, optional
+        If True, the function also returns the DFC stream. Default is False.
+    save_path : str or None, optional
+        The directory path where the computed meta-connectivity and DFC stream will 
+        be saved. If None, results are not saved. Default is None.
+    n_jobs : int, optional
+        The number of parallel jobs to use for computation. Use -1 to utilize all 
+        available CPU cores. Default is -1.
+
+    --------
+    mc : np.ndarray
+        A 3D array of meta-connectivity matrices for each animal.
+    dfc_stream : np.ndarray, optional
+        A 4D array of DFC streams for each animal, returned only if `return_dfc` is True.
+
+    Notes:
+    ------
+    - If a `save_path` is provided and a cached result exists, the function will load 
+      the cached data instead of recomputing it.
+    - The function uses joblib for parallel computation, with the "loky" backend.
+    - The meta-connectivity matrices are computed by correlating the DFC streams.
+
+    Examples:
+    ---------
+    # Example usage:
+    mc = compute_metaconnectivity(ts_data, window_size=10, lag=2, save_path="./cache")
+    mc, dfc_stream = compute_metaconnectivity(ts_data, return_dfc=True, n_jobs=4)
+    """
+
+    n_animals, tr_points, nodes  = ts_data.shape
+    dfc_stream  = None
+    mc          = None
+
+    # File path setup
+    save_path = Path(save_path) if save_path else None
+    full_save_path = (
+        save_path / f"dfc_window_size={window_size}_lag={lag}_animals={n_animals}_regions={nodes}.npz"
+        if save_path else None
+    )
+    if full_save_path:
+        full_save_path.parent.mkdir(parents=True, exist_ok=True)
+        # full_save_path = os.path.join(save_path, f'mc_window_size={window_size}_lag={lag}_animals={n_animals}_regions={nodes}.npz')
+        # os.makedirs(os.path.dirname(full_save_path), exist_ok=True)
+
+    # Load from cache
+    if full_save_path and full_save_path.exists():
+        print(f"Loading dFC stream from: {full_save_path}")
+        data = np.load(full_save_path, allow_pickle=True)
+        dfc_stream = data['dfc_stream'] 
+    else:
+        print(f"Computing dFC stream in parallel (window_size={window_size}, lag={lag})...")
+
+        # Parallel DFC stream computation per animal
+        with parallel_backend("loky", n_jobs=n_jobs):
+            dfc_stream_list = Parallel()(
+                delayed(ts2dfc_stream)(ts_data[i], window_size, lag, format_data=format_data)
+                # for i in tqdm(range(n_animals), desc="DFC Streams")
+                for i in range(n_animals)
+            )
+        dfc_stream = np.stack(dfc_stream_list)
+
+    # Save results if path is provided
+    if full_save_path:
+        print(f"Saving dFC stream to: {full_save_path}")
+        np.savez_compressed(full_save_path, dfc_stream=dfc_stream)
+    return dfc_stream
+
 #%%
 # =============================================================================
-# Speed functions
+# Speed functions from dFC data
 # =============================================================================
 
 def dfc_speed(dfc_stream, vstep=1):
@@ -393,9 +438,9 @@ def parallel_dfc_speed_oversampled_series(ts, window_parameter, lag=1, tau=3,
     else:
         return np.array(speed_medians)
 
-
+#%%
 # =============================================================================
-# Window pooling functions
+# Window pooling functions of speed data
 # =============================================================================
 
 def pool_vel_windows(vel, lentau, limits, strategy="pad"):
