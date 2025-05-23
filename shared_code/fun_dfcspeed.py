@@ -213,6 +213,8 @@ def compute_dfc_stream(ts_data, window_size=7, lag=1, format_data='3D',save_path
     n_animals, tr_points, nodes  = ts_data.shape
     dfc_stream  = None
     mc          = None
+    dfc_stream_loaded = False  # <- initialize this early
+
 
     # File path setup
     save_path = Path(save_path) if save_path else None
@@ -224,13 +226,18 @@ def compute_dfc_stream(ts_data, window_size=7, lag=1, format_data='3D',save_path
         full_save_path.parent.mkdir(parents=True, exist_ok=True)
         # full_save_path = os.path.join(save_path, f'mc_window_size={window_size}_lag={lag}_animals={n_animals}_regions={nodes}.npz')
         # os.makedirs(os.path.dirname(full_save_path), exist_ok=True)
-
+    print(full_save_path)
     # Load from cache
     if full_save_path and full_save_path.exists():
-        print(f"Loading dFC stream from: {full_save_path}")
-        data = np.load(full_save_path, allow_pickle=True)
-        dfc_stream = data['dfc_stream'] 
-    else:
+        try:
+            print(f"Loading dFC stream from: {full_save_path}")
+            data = np.load(full_save_path, allow_pickle=True)
+            dfc_stream = data['dfc_stream']
+            dfc_stream_loaded = True
+        except Exception as e:
+            print(f"Failed to load cached dFC stream (reason: {e}). Recomputing...")
+
+    if not dfc_stream_loaded:
         print(f"Computing dFC stream in parallel (window_size={window_size}, lag={lag})...")
 
         # Parallel DFC stream computation per animal
@@ -507,4 +514,6 @@ def get_population_wpooling(wp_list, index_group):
 #Remove at some point 
 wpool_impaired = get_population_wpooling
 
+
+#%%
 
