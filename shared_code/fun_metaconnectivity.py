@@ -23,6 +23,8 @@ from joblib import Parallel, delayed, parallel_backend
 from .fun_dfcspeed import ts2dfc_stream
 from .fun_loaddata import *
 from .fun_optimization import fast_corrcoef#, fast_corrcoef_numba, fast_corrcoef_numba_parallel
+
+import logging
 # import time
 # from functions_analysis import *
 # from scipy.io import loadmat, savemat
@@ -32,8 +34,68 @@ from .fun_optimization import fast_corrcoef#, fast_corrcoef_numba, fast_corrcoef
 # from scipy.spatial.distance import squareform
 
 
-#%%Metaconnectivity
-def compute_metaconnectivity(ts_data, window_size=7, lag=1, return_dfc=False, save_path=None, n_jobs=-1):
+#%%Metaconnectivity 
+
+logger = logging.getLogger(__name__)
+
+def animal_mc(ts, window_size, lag):
+    """Compute MC for a single animal."""
+    dfc = ts2dfc_stream(ts, window_size, lag, format_data='2D')
+    mc = fast_corrcoef(dfc.T)
+    return mc
+
+def _generate_save_path(save_path, n_animals, nodes, window_size, lag):
+    """Generate a consistent save path."""
+    if save_path:
+        save_path = Path(save_path)
+        save_path.mkdir(parents=True, exist_ok=True)
+        return save_path / f"mc_window_size={window_size}_lag={lag}_animals={n_animals}_regions={nodes}.npz"
+    return None
+
+def _load_cache(full_save_path):
+    """Load cache if exists."""
+    if full_save_path and full_save_path.exists():
+        logger.info(f"Loading meta-connectivity from: {full_save_path}")
+        data = np.load(full_save_path, allow_pickle=True)
+        return data['mc']  # Safely handle missing keys
+    return None
+
+def compute_metaconnectivity(ts_data, window_size=7, lag=1, save_path=None, n_jobs=-1):
+    """Compute meta-connectivity matrices from time-series data using a sliding window approach.
+    This function supports parallel computation and caching of results to optimize performance.
+    Parameters:
+    - ts_data: 3D numpy array of shape (n_animals, n_regions, n_timepoints)
+    - window_size: Size of the sliding window (default: 7)
+    - lag: Lag to apply to the time series (default: 1)
+    - save_path: Path to save the computed meta-connectivity (default: None)
+    - n_jobs: Number of parallel jobs to run (default: -1, use all available cores)
+    Returns:
+    - mc: 3D numpy array of shape (n_animals, n_regions, n_regions) representing the meta-connectivity matrices
+    """
+    n_animals, n_regions, _ = ts_data.shape
+    full_save_path = _generate_save_path(save_path, n_animals, n_regions, window_size, lag)
+
+    # Load from cache if available
+    if full_save_path is not None and full_save_path.exists():
+        return _load_cache(full_save_path)
+
+    # Compute meta-connectivity in parallel
+    with parallel_backend("loky", n_jobs=n_jobs):
+        results = Parallel()(
+            delayed(animal_mc)(ts_data[i].astype(np.float32), window_size, lag)
+            for i in range(n_animals)
+        )
+    # Stack results into a 3D array
+    mc = np.stack(results)
+    # Save results if a save path is provided
+    if save_path:
+        logger.info(f"Saving meta-connectivity to: {full_save_path}")
+        np.savez_compressed(full_save_path, mc=mc)
+    return mc
+
+#%%
+# Deprecated - Old version of compute_metaconnectivity function
+def compute_metaconnectivity_old(ts_data, window_size=7, lag=1, return_dfc=False, save_path=None, n_jobs=-1):
     """
     This function calculates meta-connectivity matrices from time-series data using 
     a sliding window approach. It supports parallel computation and caching of results 

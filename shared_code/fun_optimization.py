@@ -105,5 +105,7 @@ def fast_corrcoef(ts):
     n_samples, n_features = ts.shape
     mean = np.mean(ts, axis=0)
     std = np.std(ts, axis=0, ddof=1)
+    # Avoid division by zero for constant columns
+    std[std == 0] = 1.0
     z = (ts - mean) / std
     return np.dot(z.T, z) / (n_samples - 1)
