@@ -1,8 +1,4 @@
-shared_code/__pycache__/__init__.cpython-311.pyc
-shared_code/__pycache__/fun_bootstrap.cpython-311.pyc
-shared_code/__pycache__/fun_dfcspeed.cpython-311.pyc
-shared_code/__pycache__/fun_loaddata.cpython-311.pyc
-shared_code/__pycache__/fun_metaconnectivity.cpython-311.pyc
-shared_code/__pycache__/fun_network.cpython-311.pyc
-shared_code/__pycache__/fun_optimization.cpython-311.pyc
-shared_code/__pycache__/fun_utils.cpython-311.pyc
+shared_code/*.pyc
+shared_code/*.pyo
+shared_code/*.pyd
+shared_code/.pytest_cache
