@@ -27,8 +27,10 @@ from tqdm import tqdm
 import numexpr as ne
 from joblib import Parallel, delayed, parallel_backend
 from collections import Counter
+import logging
 
 from .fun_optimization import fast_corrcoef, fast_corrcoef_numba
+from.fun_loaddata import *
 # =============================================================================
 # # fc and fcd functions
 # =============================================================================
@@ -165,8 +167,51 @@ def dfc_stream2fcd(dfc_stream):
     dfc = np.corrcoef(dfc_stream_2D)
     
     return dfc
+#%%
 
-def compute_dfc_stream(ts_data, window_size=7, lag=1, format_data='3D',save_path=None, n_jobs=-1):
+
+
+logger = logging.getLogger(__name__)
+
+def compute_dfc_stream(ts_data, window_size=7, lag=1, format_data='3D', save_path=None, n_jobs=-1):
+    """
+    Calculate dynamic functional connectivity (DFC) streams for time-series data.
+
+    Parameters:
+        ts_data (np.ndarray): 3D array (n_animals, n_regions, n_timepoints).
+        window_size (int): Sliding window size.
+        lag (int): Step size for the sliding window.
+        format_data (str): '2D' for vectorized, '3D' for matrices.
+        save_path (str): Directory to save results.
+        n_jobs (int): Number of parallel jobs (-1 for all cores).
+
+    Returns:
+        np.ndarray: 4D array of DFC streams (n_animals, ...)
+    """
+    logger = logging.getLogger(__name__)
+
+    n_animals, _, nodes = ts_data.shape
+    full_save_path = make_save_path(save_path, "dfc", window_size, lag, n_animals, nodes)
+    # get_save_path(save_path, window_size, lag, n_animals, nodes)
+
+    # Load from cache if possible
+    if full_save_path is not None and full_save_path.exists():
+        return load_npz_cache(full_save_path, key="dfc_stream", label='dfc-stream')
+        # dfc_stream = load_cached_dfc(full_save_path)
+
+    # Compute DFC streams in parallel
+    logger.info(f"Computing dFC stream in parallel (window_size={window_size}, lag={lag})...")
+    with parallel_backend("loky", n_jobs=n_jobs):
+        dfc_stream = np.stack(Parallel()(
+            delayed(ts2dfc_stream)(ts_data[i], window_size, lag, format_data) for i in range(n_animals)
+        ))
+
+    # Save results if needed
+    save_npz_stream(full_save_path, prefix='dfc_stream', dfc=dfc_stream)
+    return dfc_stream
+
+#Deprecated
+def compute_dfc_stream_old(ts_data, window_size=7, lag=1, format_data='3D',save_path=None, n_jobs=-1):
     """
     This function calculates dynamic functional connectivity (DFC) streams from time-series data using 
     a sliding window approach. It supports parallel computation and caching of results 
@@ -174,7 +219,7 @@ def compute_dfc_stream(ts_data, window_size=7, lag=1, format_data='3D',save_path
 
     -----------
     ts_data : np.ndarray
-        A 3D array of shape (n_animals, n_regions, n_timepoints) representing the 
+        A 3D array of shape (n_animals, n_timepoints, n_regions) representing the 
         time-series data for multiple animals and brain regions.
     window_size : int, optional
         The size of the sliding window used for dynamic functional connectivity (DFC) 

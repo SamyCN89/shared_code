@@ -44,22 +44,6 @@ def animal_mc(ts, window_size, lag):
     mc = fast_corrcoef(dfc.T)
     return mc
 
-def _generate_save_path(save_path, n_animals, nodes, window_size, lag):
-    """Generate a consistent save path."""
-    if save_path:
-        save_path = Path(save_path)
-        save_path.mkdir(parents=True, exist_ok=True)
-        return save_path / f"mc_window_size={window_size}_lag={lag}_animals={n_animals}_regions={nodes}.npz"
-    return None
-
-def _load_cache(full_save_path):
-    """Load cache if exists."""
-    if full_save_path and full_save_path.exists():
-        logger.info(f"Loading meta-connectivity from: {full_save_path}")
-        data = np.load(full_save_path, allow_pickle=True)
-        return data['mc']  # Safely handle missing keys
-    return None
-
 def compute_metaconnectivity(ts_data, window_size=7, lag=1, save_path=None, n_jobs=-1):
     """Compute meta-connectivity matrices from time-series data using a sliding window approach.
     This function supports parallel computation and caching of results to optimize performance.
@@ -72,12 +56,11 @@ def compute_metaconnectivity(ts_data, window_size=7, lag=1, save_path=None, n_jo
     Returns:
     - mc: 3D numpy array of shape (n_animals, n_regions, n_regions) representing the meta-connectivity matrices
     """
-    n_animals, n_regions, _ = ts_data.shape
-    full_save_path = _generate_save_path(save_path, n_animals, n_regions, window_size, lag)
-
+    n_animals, _, nodes = ts_data.shape
+    full_save_path = make_save_path(save_path, "mc", window_size, lag, n_animals, nodes)
     # Load from cache if available
     if full_save_path is not None and full_save_path.exists():
-        return _load_cache(full_save_path)
+        return load_npz_cache(full_save_path, key="mc", label='meta-connectivity')
 
     # Compute meta-connectivity in parallel
     with parallel_backend("loky", n_jobs=n_jobs):
@@ -88,6 +71,7 @@ def compute_metaconnectivity(ts_data, window_size=7, lag=1, save_path=None, n_jo
     # Stack results into a 3D array
     mc = np.stack(results)
     # Save results if a save path is provided
+    save_npz_stream(full_save_path, prefix='mc', mc=mc)
     if save_path:
         logger.info(f"Saving meta-connectivity to: {full_save_path}")
         np.savez_compressed(full_save_path, mc=mc)
