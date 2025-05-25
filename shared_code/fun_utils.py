@@ -39,54 +39,25 @@ def get_root_path():
         raise EnvironmentError("Environment variable PROJECT_DATA_ROOT is not set.")
     return Path(root)
 
-
-def get_root_path_old(external_disk=True, external_path=None, internal_path=None):
-    if external_path is None:
-        external_path = '/media/samy/Elements1/Proyectos/LauraHarsan/script_mc/'
-    if internal_path is None:
-        internal_path = '/home/samy/Bureau/Proyect/LauraHarsan/Ines/'
-
-    root_path = Path(external_path if external_disk else internal_path)
-
-    if not root_path.exists():
-        raise FileNotFoundError(f"Root path does not exist: {root_path}")
-    return root_path
-
 def get_paths(
     external_disk=True, 
     external_path=None, 
     internal_path=None,
-    timecourse_folder="Timecourses_updated_03052024"
+    timecourse_folder="Timecourses_updated_03052024",
+    cognitive_data_file="ROIs.xlsx",
 ):
     """
     Generate a dictionary of paths for various data and result directories.
 
-    Parameters:
-        external_disk (bool): Whether to use the external disk path.
-        external_path (str or None): Path to the external disk. Defaults to a predefined path.
-        internal_path (str or None): Path to the internal disk. Defaults to a predefined path.
-        timecourse_folder (str): Name of the folder containing timecourse data.
-
-    Returns:
-        dict: A dictionary containing paths with the following keys:
-            - 'root': Root directory path.
-            - 'results': Path to the results directory.
-            - 'timeseries': Path to the timecourse data directory.
-            - 'cog_data': Path to the cognitive data file.
-            - 'mc': Path to the metaconnectivity results directory.
-            - 'sorted': Path to the sorted data directory.
-            - 'mc_mod': Path to the metaconnectivity modularity results directory.
-            - 'allegiance': Path to the allegiance results directory.
-            - 'figures': Path to the figures directory.
-            - 'fmodularity': Path to the modularity figures directory.
     """
     root = get_root_path()
     return {
         'root': root,
         'results': root / 'results',
         'timeseries': root / f'results/{timecourse_folder}',
-        'cog_data': root / f'results/{timecourse_folder}/ROIs.xlsx',
+        'cog_data': root / f'results/{timecourse_folder}/{cognitive_data_file}',
         'mc': root / 'results/mc/',
+        'dfc': root / 'results/dfc/',
         'sorted': root / 'results/sorted_data/',
         'mc_mod': root / 'results/mc_mod/',
         'allegiance': root / 'results/allegiance/',
