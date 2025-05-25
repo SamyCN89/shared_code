@@ -186,7 +186,7 @@ def compute_dfc_stream(ts_data, window_size=7, lag=1, format_data='3D', save_pat
         n_jobs (int): Number of parallel jobs (-1 for all cores).
 
     Returns:
-        np.ndarray: 4D array of DFC streams (n_animals, ...)
+        np.ndarray: 4D array of DFC streams (n_animals, time_windows, roi, roi)
     """
     logger = logging.getLogger(__name__)
 
@@ -205,9 +205,9 @@ def compute_dfc_stream(ts_data, window_size=7, lag=1, format_data='3D', save_pat
         dfc_stream = np.stack(Parallel()(
             delayed(ts2dfc_stream)(ts_data[i], window_size, lag, format_data) for i in range(n_animals)
         ))
-
+    dfc_stream = np.transpose(dfc_stream,(0,3,1,2)).astype(np.float32)  # Convert to float32 for memory efficiency
     # Save results if needed
-    save_npz_stream(full_save_path, prefix='dfc_stream', dfc=dfc_stream)
+    save_npz_stream(full_save_path, prefix='dfc_stream', dfc_stream=dfc_stream)
     return dfc_stream
 
 #Deprecated

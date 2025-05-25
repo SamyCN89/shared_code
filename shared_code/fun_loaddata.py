@@ -86,6 +86,61 @@ def save_npz_stream(save_path, prefix, **data):
         return save_path
     return None
 
+#%%
+# Check if the prefix files exist and their sizes: using the check_and_rerun_missing_files function and get_missing_files function
+def get_missing_files(paths, prefix, time_window_range, lag, n_animals, roi, size_threshold=1_000_000):
+    """
+    Check if the prefix files exist for all specified window sizes after computing.
+    If a file is empty/corrupt, it will be added to the *missing_files* list.
+    Args:
+        paths (dict): Dictionary containing paths for saving files.
+        prefix (str): Prefix for the file names. Now implemented as 'dfc' and 'mc'.
+        time_window_range (list): List of time window sizes to check.
+        lag (int): Lag parameter used in the computation.
+        n_animals (int): Number of animals in the dataset.
+        roi (list): List of regions of interest.
+        size_threshold (int): Minimum file size threshold to consider a file valid.
+    Returns:
+        missing_files (list): List of time window sizes for which files are missing or invalid.     
+    """
+    missing_files = []
+    for ws in time_window_range:
+        # 1. Check the existence of the file for each window size
+        full_save_path = make_save_path(paths, prefix, ws, lag, n_animals, roi)
+        if not full_save_path.exists():
+            missing_files.append(ws)
+        # 2. Check if the file is empty or corrupt (less than 1 MB)
+        else:
+            if full_save_path.stat().st_size < size_threshold:  # This will raise an error if the file is not valid
+                # Remove the file if it's empty or corrupt
+                print(f"File {full_save_path} exists but is empty or corrupt. Removing it.")
+                full_save_path.unlink(missing_ok=True)
+                missing_files.append(ws)
+    return missing_files
+
+def check_and_rerun_missing_files(paths, prefix, time_window_range, lag, n_animals, roi):
+    """
+    Check for missing prefix files and compute them if necessary.
+    Args:
+        paths (dict): Dictionary containing paths for different data types.
+        prefix (str): Prefix of the files to check. 'dfc' for DFC stream files, 'mc' for meta-connectivity files.
+        time_window_range (np.ndarray): Array of time window sizes to check.
+        lag (int): Lag parameter for DFC computation.
+        n_animals (int): Number of animals in the dataset.
+        roi (str): Region of interest for DFC computation.
+    Returns:
+        missing_files (list): List of time window sizes for which files are missing or invalid.
+    """
+    missing_files = get_missing_files(paths, prefix, time_window_range, lag, n_animals, roi)
+    if not missing_files:
+        print(f"All {prefix} files already exist.")
+    else:
+        print(f"Missing {prefix} files for window sizes:", missing_files)
+        Parallel(n_jobs=min(PROCESSORS, len(missing_files)))(
+            delayed(compute_for_window_size)(ws) for ws in missing_files
+        )
+    return missing_files
+
 
 #%%
 def filename_sort_mat(folder_path):
