@@ -68,6 +68,7 @@ def get_paths(
         'mc_mod': results / 'mc_mod/',
         'allegiance': results / 'allegiance/',
         'trimers': results / 'trimers/',
+        'speed': results / 'speed/',
 
         #figures folders
         'figures': figures,
@@ -162,29 +163,20 @@ def load_grouping_data(path_to_pkl: Path):
 
 def filename_sort_mat(folder_path):
     """Read and sort MATLAB file names in a given folder path."""
-    files_name = sorted(f for f in os.listdir(folder_path) if f.endswith('.mat'))
+    folder = Path(folder_path)
+    files_name = sorted(f.name for f in folder.iterdir() if f.suffix == '.mat')
+    # files_name = sorted(f for f in os.listdir(folder_path) if f.endswith('.mat'))
 
     return files_name
 
-
-# def extract_hash_numbers(filenames, prefix='lot3_'):
-#     hash_numbers = []
-#     for name in filenames:
-#         if prefix in name:
-#             try:
-#                 hash_num = int(name.split(prefix)[-1][:4])
-#                 hash_numbers.append(hash_num)
-#             except ValueError:
-#                 print(f"Warning: Could not extract hash from {name}")
-#     return hash_numbers
-
 def load_matdata(folder_data, specific_folder, files_name):
     ts_list = []
-    hash_dir        = os.path.join(folder_data, specific_folder)
+    hash_dir = Path(folder_data) / specific_folder
 
-    for idx,file_name in enumerate(files_name):
-        file_path       = os.path.join(hash_dir, file_name)
-        
+    # Ensure the directory exists
+    for file_name in files_name:
+        file_path = hash_dir / file_name
+        # Check if the file exists
         try:
             data = loadmat(file_path)['tc']
             ts_list.append(data)

@@ -107,22 +107,24 @@ def ts2fc(timeseries, format_data = '2D', method='pearson'):
 #===============================================================================
 def ts2dfc_stream(ts, window_size, lag=None, format_data='2D', method='pearson'):
     """
-    Calculate dynamic functional connectivity stream (dfc_stream) from time series.
+    Compute dynamic functional connectivity (DFC) stream using a sliding window approach.
 
     Parameters:
-    - ts: np.ndarray (timepoints x regions)
-    - window_size: int
-    - lag: int (defaults to window_size)
-    - format_data: '2D' for vectorized, '3D' for matrices
+        ts (np.ndarray): Time series data (timepoints x regions).
+        window_size (int): Size of the sliding window.
+        lag (int): Step size between windows (default = window_size).
+        format_data (str): '2D' for vectorized FC, '3D' for FC matrices.
+        method (str): Correlation method (currently only 'pearson').
 
     Returns:
-    - dfc_stream: np.ndarray
+        np.ndarray: DFC stream, either in 2D (n_pairs x frames) or 3D (n_regions x n_regions x frames).
     """
     t_total, n = ts.shape
     lag = lag or window_size
     frames = (t_total - window_size) // lag + 1
     n_pairs = n * (n - 1) // 2
 
+    #Preallocate DFC stream
     if format_data == '2D':
         dfc_stream = np.empty((n_pairs, frames))
         tril_idx = np.tril_indices(n, k=-1)  # Precompute once
@@ -307,7 +309,7 @@ def compute_dfc_stream_old(ts_data, window_size=7, lag=1, format_data='3D',save_
 
 def dfc_speed(dfc_stream, vstep=1):
     """
-    Calculate speeds of variation in dynamic functional connectivity over a specified step size.
+    Calculate speeds of variation in dfc over a specified step size.
     
     Parameters:
     dfc_stream (numpy.ndarray): Input dynamic functional connectivity stream (2D or 3D).
@@ -332,22 +334,18 @@ def dfc_speed(dfc_stream, vstep=1):
 
     # Compute speeds using correlation distance
     # for sp in range(nslices - vstep):
-    for sp in tqdm(range(nslices - vstep)):
-        # if (sp + vstep)>0:
-        # if (sp + vstep)>=0 or (nslices - vstep)>sp:
+    for sp in range(nslices - vstep):
         fc1 = fc_stream[:, sp]
         fc2 = fc_stream[:, sp + vstep]
-        # Directly compute the Pearson correlation coefficient
+        # Directly compute the Pearson correlation coefficient (faster than fast_corrcoef)
         covariance = np.cov(fc1, fc2)
         correlation = covariance[0, 1] / np.sqrt(covariance[0, 0] * covariance[1, 1])
-        speed = 1 - correlation
-        speeds[sp] = speed
+        speeds[sp] = 1 - correlation
 
-    # Calculate median speed
-    speed_median    = np.median(speeds)
+    return np.median(speeds), speeds
 
-    return speed_median, speeds
 
+#%%
 # def dfc_speed_series(ts, window_parameter, lag=1, tau=3, get_speed_dist=False):
 def dfc_speed_oversampled_series(ts, window_parameter, lag=1, tau=3, min_tau_zero=False, get_speed_dist=False):
     """
@@ -400,10 +398,10 @@ def dfc_speed_oversampled_series(ts, window_parameter, lag=1, tau=3, min_tau_zer
     
         windows_size    = tt
     
-        dfc_streamaux   = ts2dfc_stream(ts, windows_size, lag, format_data='2D')
-        height_stripe      = dfc_streamaux.shape[1]-windows_size-tau
+        aux_dfc_stream   = ts2dfc_stream(ts, windows_size, lag, format_data='2D')
+        height_stripe      = aux_dfc_stream.shape[1]-windows_size-tau
     
-        speed_oversampl    = np.array([dfc_speed(dfc_streamaux, vstep=windows_size + sp)[1][:height_stripe] for sp in tau_array])
+        speed_oversampl    = np.array([dfc_speed(aux_dfc_stream, vstep=windows_size + sp)[1][:height_stripe] for sp in tau_array])
         speed_windows_tau[idx_tt] = np.median(speed_oversampl,axis=1)
 
         if get_speed_dist==True:        # speed_dist = np.mean(speed_oversampl,axis=1)
@@ -417,54 +415,24 @@ def dfc_speed_oversampled_series(ts, window_parameter, lag=1, tau=3, min_tau_zer
 
 
 def parallel_dfc_speed_oversampled_series(ts, window_parameter, lag=1, tau=3, 
-                                          min_tau_zero=False, get_speed_dist=False, method='pearson', 
-                                          n_jobs=-1):
+                                          min_tau_zero=False, get_speed_dist=False, 
+                                          method='pearson', n_jobs=-1):
     """
-    Computes the median speed of dynamic functional connectivity (DFC) variation over a range of window sizes,
-    using parallel processing for improved performance. This function facilitates the analysis of DFC speed
-    variations across different scales of temporal resolution.
+    Compute DFC speed over a range of window sizes and tau values using parallel processing.
 
-    The computation is performed for each window size within the specified range and optionally for different
-    values of temporal shift (tau). The function supports returning a distribution of speeds across all window sizes
-    and tau values if required.
+    Parameters:
+        ts (np.ndarray): Time series data (timepoints x regions).
+        window_parameter (tuple): (min_win, max_win, step).
+        lag (int): Lag between windows (default: 1).
+        tau (int): Max temporal shift for oversampling.
+        min_tau_zero (bool): If True, tau starts at 0; else from -tau.
+        get_speed_dist (bool): If True, also return full speed distributions.
+        method (str): Correlation method.
+        n_jobs (int): Number of parallel jobs (-1 uses all cores).
 
-    Parameters
-    ----------
-    ts : numpy.ndarray
-        Time series data from which the DFC stream is to be calculated.
-    window_parameter : tuple of (int, int, int)
-        A tuple specifying the minimum window size, maximum window size, and the step size for iterating through window sizes.
-    lag : int, optional
-        The lag parameter for DFC stream calculation, by default 1.
-    tau : int, optional
-        The maximum temporal shift to consider for over-sampled speed calculations, by default 3.
-        Speeds will be calculated for shifts in the range [-tau, tau], inclusive.
-    get_speed_dist : bool, optional
-        If True, returns the flattened distribution of speeds across all considered window sizes and tau values,
-        by default False.
-    min_tau_zero : bool, optional
-        If True, the minimum tau value is set to 0, otherwise it is set to -tau, by default False.
-    method : str, optional
-        The method used for calculating functional connectivity, by default 'pearson'.
-    n_jobs : int, optional
-        The number of jobs to run in parallel, by default -1 (use all available cores).
-        This parameter is passed to the joblib.Parallel function.
-        If set to -1, all available cores will be used for parallel processing.
-        If set to 1, no parallel processing will be used.
-        If set to any other positive integer, that number of jobs will be used for parallel processing.
-        This allows for flexibility in managing computational resources and optimizing performance based on the system's capabilities.
-    Returns
-    -------
-    numpy.ndarray
-        An array containing the median speed of DFC variation for each window size considered.
-    list of numpy.ndarray, optional
-        A list of numpy arrays containing the distributions of speeds for each window size and tau value,
-        returned only if `get_speed_dist` is True.
-
-    Notes
-    -----
-    This function relies on parallel processing to improve computation time, making it suitable for datasets
-    where analyzing DFC variation across multiple scales and temporal shifts is computationally intensive.
+    Returns:
+        np.ndarray: Median speeds for each window size and tau.
+        list[np.ndarray]: Flattened speed distributions (if get_speed_dist=True).
     Samy Castro 2024
     """
     
@@ -475,14 +443,17 @@ def parallel_dfc_speed_oversampled_series(ts, window_parameter, lag=1, tau=3,
     time_windows_range = np.arange(win_min, win_max + 1, win_step)
     tau_array = np.append(np.arange(min_tau, tau), tau)
 
-
     def compute_speed_for_window_size(tt):
-        dfc_streamaux = ts2dfc_stream(ts, tt, lag, format_data='2D', method=method)
-        height_stripe = dfc_streamaux.shape[1] - tt - tau
-        speed_oversampl = [dfc_speed(dfc_streamaux, vstep=tt + sp)[1][:height_stripe] for sp in tau_array]
+        aux_dfc_stream = ts2dfc_stream(ts, tt, lag, format_data='2D', method=method)
+        height_stripe = aux_dfc_stream.shape[1] - tt - tau
+        speed_oversampl = [dfc_speed(aux_dfc_stream, vstep=tt + sp)[1][:height_stripe] 
+                           for sp in tau_array]
         return np.median(speed_oversampl, axis=1), speed_oversampl if get_speed_dist else None
 
-    results = Parallel(n_jobs=n_jobs)(delayed(compute_speed_for_window_size)(tt) for tt in tqdm(time_windows_range))
+    results = Parallel(n_jobs=n_jobs)(
+                delayed(compute_speed_for_window_size)(tt) 
+                for tt in tqdm(time_windows_range)
+    )
     speed_medians, speed_dists = zip(*results) if get_speed_dist else (zip(*results), None)
 
     if get_speed_dist:
