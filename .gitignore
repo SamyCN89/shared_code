@@ -1,4 +1,4 @@
-shared_code/*.pyc
-shared_code/*.pyo
-shared_code/*.pyd
-shared_code/.pytest_cache
+*.pyc
+*.pyo
+*.pyd
+/.pytest_cache

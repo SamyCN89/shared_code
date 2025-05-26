@@ -13,59 +13,89 @@ from scipy.io import loadmat
 import pandas as pd
 import matplotlib.pyplot as plt
 import pickle
-# =============================================================================
-# Set Figure Params
-# =============================================================================
+from dotenv import load_dotenv
 
-def set_figure_params(savefig=False):
-    plt.rcParams.update({
-        'axes.labelsize': 15,
-        'axes.titlesize': 13,
-        'axes.spines.right': False,
-        'axes.spines.top': False,
-    })
-    if savefig==True:
-        return savefig
+# Load environment variables from ../../.env if present
+load_dotenv()
 
 
 # =============================================================================
 # Get Paths folder
 # =============================================================================
-
-
-def get_root_path():
-    root = os.environ.get("PROJECT_DATA_ROOT")
+def get_root_path(env='LOCAL'):
+    # root = os.environ.get("PROJECT_DATA_ROOT")
+    root = os.getenv(f"PROJECT_ROOT_{env}")
     if not root:
-        raise EnvironmentError("Environment variable PROJECT_DATA_ROOT is not set.")
+        raise EnvironmentError("Environment variable PROJECT_ROOT_EXT is not set.")
     return Path(root)
 
 def get_paths(
-    external_disk=True, 
-    external_path=None, 
-    internal_path=None,
+    dataset_name=None,
     timecourse_folder="Timecourses_updated_03052024",
     cognitive_data_file="ROIs.xlsx",
+    create=True,
+    check_write=False,
 ):
     """
     Generate a dictionary of paths for various data and result directories.
-
+    
+    Parameters:
+        - dataset_name: ''
+        - timecourse_folder: subfolder under 'dataset/ines_abdullah'
+        - cognitive_data_file: cognitive data filename
+        - create: auto-create missing directories (default: True)
+        - check_write: check write permission on key folders (default: False)
     """
     root = get_root_path()
-    return {
+    
+        # Use dataset_name param or fallback to env
+    dataset_name = dataset_name or os.getenv("DATASET_NAME", "ines_abdullah")
+    
+    dataset = root / 'dataset' / dataset_name
+    results = root / 'results' / dataset_name
+    figures = root / 'fig' / dataset_name
+    
+    paths = {
         'root': root,
-        'results': root / 'results',
-        'timeseries': root / f'results/{timecourse_folder}',
-        'cog_data': root / f'results/{timecourse_folder}/{cognitive_data_file}',
-        'mc': root / 'results/mc/',
-        'dfc': root / 'results/dfc/',
-        'sorted': root / 'results/sorted_data/',
-        'mc_mod': root / 'results/mc_mod/',
-        'allegiance': root / 'results/allegiance/',
-        'trimers': root / 'results/trimers/',
-        'figures': root / 'fig',
-        'fmodularity': root / 'fig/modularity',
-        
+        # Load dataset paths
+        'timeseries': dataset / f'{timecourse_folder}',
+        'cog_data': dataset / f'{timecourse_folder}/{cognitive_data_file}',
+
+        'results': results,
+        'mc': results / 'mc/',
+        'dfc': results / 'dfc/',
+        'sorted': results / 'sorted_data/',
+        'mc_mod': results / 'mc_mod/',
+        'allegiance': results / 'allegiance/',
+        'trimers': results / 'trimers/',
+
+        #figures folders
+        'figures': figures,
+        'fmodularity': figures / 'modularity',
+        'f_mod': figures / 'modularity',
+
     }
+    
+    if create:
+        for key, path in paths.items():
+            # Skip file paths like 'cog_data'
+            if not path.suffix and not path.exists():
+                path.mkdir(parents=True, exist_ok=True)
+    if check_write:
+        unwritable = []
+        for key, path in paths.items():
+            if not path.suffix:  # Only check for directories
+                try:
+                    test_file = path / ".write_test"
+                    with open(test_file, "w") as f:
+                        f.write("test")
+                    test_file.unlink()
+                except Exception:
+                    unwritable.append((key, str(path)))
+        if unwritable:
+            raise PermissionError(f"Write permission denied for: {unwritable}")
+    return paths
+
 
 # =============================================================================
 # Load data functions
@@ -275,3 +305,16 @@ def matrix2vec(matrix3d):
     #F: Frame, n: node
     F, n, _ = matrix3d.T.shape  # Assuming matrix3d shape is [F, n, n]
     return matrix3d.reshape((n*n,F))
+# =============================================================================
+# Set Figure Params
+# =============================================================================
+
+def set_figure_params(savefig=False):
+    plt.rcParams.update({
+        'axes.labelsize': 15,
+        'axes.titlesize': 13,
+        'axes.spines.right': False,
+        'axes.spines.top': False,
+    })
+    if savefig==True:
+        return savefig
