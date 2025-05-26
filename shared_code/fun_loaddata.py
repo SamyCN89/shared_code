@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 import os
 from scipy.io import loadmat
+# from .fun_dfcspeed import compute_for_window_size_new
 
 #%%
 def make_save_path(save_path, prefix, window_size, lag, n_animals, nodes):
@@ -79,6 +80,7 @@ def save_npz_stream(save_path, prefix, **data):
     Returns:
         Path or None: The path where data was saved, or None if save_path not given.
     """
+    print('here')
     if save_path:
         # full_save_path = save_path / f"{prefix}_window_size={window_size}_lag={lag}_animals={n_animals}_regions={nodes}.npz"
         print(f"Saving {prefix} stream to: {save_path}")
@@ -137,7 +139,7 @@ def check_and_rerun_missing_files(paths, prefix, time_window_range, lag, n_anima
     else:
         print(f"Missing {prefix} files for window sizes:", missing_files)
         Parallel(n_jobs=min(PROCESSORS, len(missing_files)))(
-            delayed(compute_for_window_size)(ws) for ws in missing_files
+            delayed(compute_for_window_size_new)(ws, prefix) for ws in missing_files
         )
     return missing_files
 

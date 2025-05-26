@@ -30,10 +30,43 @@ from collections import Counter
 import logging
 
 from .fun_optimization import fast_corrcoef, fast_corrcoef_numba
-from.fun_loaddata import *
+from .fun_loaddata import *
+
+#%%
 # =============================================================================
 # # fc and fcd functions
 # =============================================================================
+
+def ts2fc(timeseries, format_data = '2D', method='pearson'):
+    """
+    Calculate functional connectivity from time series data.
+    
+    Parameters:
+    timeseries (array): Time series data of shape (timepoints, nodes).
+    format_data (str): Output format, '2D' for full matrix or '1D' for lower-triangular vector.
+    
+    Returns:
+    fc (array): Functional connectivity matrix ('2D') or vector ('1D').
+    
+    Adapted from Lucas Arbabyazd et al 2020. Methods X, doi: 10.1016/j.neuroimage.2020.117156
+    """
+    # Calculate correlation coefficient matrix
+    if method=='pearson':
+        fc = fast_corrcoef(timeseries)
+        # fc = fast_corrcoef2(timeseries)
+        # fc = fast_corrcoef_numba(timeseries)
+
+        # fc = np.corrcoef(timeseries.T)
+    elif method=='plv':
+        fc = compute_plv_matrix_vectorized(timeseries.T)
+
+    # Optionally zero out the diagonal for '2D' format
+    if format_data=='2D':
+        np.fill_diagonal(fc,0)#fill the diagonal with 0
+        return fc
+    elif format_data=='1D':
+        # Return the lower-triangular part excluding the diagonal
+        return fc[np.tril_indices_from(fc, k=-1)]
 
 # Function to compute phase locking value (PLV)
 def compute_plv_matrix_vectorized(data):
@@ -69,38 +102,6 @@ def compute_plv_matrix_vectorized(data):
     np.fill_diagonal(plv_matrix, 1.0)
     
     return plv_matrix
-
-def ts2fc(timeseries, format_data = '2D', method='pearson'):
-    """
-    Calculate functional connectivity from time series data.
-    
-    Parameters:
-    timeseries (array): Time series data of shape (timepoints, nodes).
-    format_data (str): Output format, '2D' for full matrix or '1D' for lower-triangular vector.
-    
-    Returns:
-    fc (array): Functional connectivity matrix ('2D') or vector ('1D').
-    
-    Adapted from Lucas Arbabyazd et al 2020. Methods X, doi: 10.1016/j.neuroimage.2020.117156
-    """
-    # Calculate correlation coefficient matrix
-    if method=='pearson':
-        fc = fast_corrcoef(timeseries)
-        # fc = fast_corrcoef2(timeseries)
-        # fc = fast_corrcoef_numba(timeseries)
-
-        # fc = np.corrcoef(timeseries.T)
-    elif method=='plv':
-        fc = compute_plv_matrix_vectorized(timeseries.T)
-
-    # Optionally zero out the diagonal for '2D' format
-    if format_data=='2D':
-        np.fill_diagonal(fc,0)#fill the diagonal with 0
-        return fc
-    elif format_data=='1D':
-        # Return the lower-triangular part excluding the diagonal
-        return fc[np.tril_indices_from(fc, k=-1)]
-
 #%%
 #===============================================================================
 # Dynamic functional connectivity stream Functions
@@ -170,9 +171,6 @@ def dfc_stream2fcd(dfc_stream):
     
     return dfc
 #%%
-
-
-
 logger = logging.getLogger(__name__)
 
 def compute_dfc_stream(ts_data, window_size=7, lag=1, format_data='3D', save_path=None, n_jobs=-1):
@@ -196,6 +194,7 @@ def compute_dfc_stream(ts_data, window_size=7, lag=1, format_data='3D', save_pat
     full_save_path = make_save_path(save_path, "dfc", window_size, lag, n_animals, nodes)
     # get_save_path(save_path, window_size, lag, n_animals, nodes)
 
+    print(f"full_save_path: {full_save_path}")
     # Load from cache if possible
     if full_save_path is not None and full_save_path.exists():
         return load_npz_cache(full_save_path, key="dfc_stream", label='dfc-stream')
@@ -207,99 +206,54 @@ def compute_dfc_stream(ts_data, window_size=7, lag=1, format_data='3D', save_pat
         dfc_stream = np.stack(Parallel()(
             delayed(ts2dfc_stream)(ts_data[i], window_size, lag, format_data) for i in range(n_animals)
         ))
-    dfc_stream = np.transpose(dfc_stream,(0,3,1,2)).astype(np.float32)  # Convert to float32 for memory efficiency
+    dfc_stream = dfc_stream.astype(np.float32)  # Convert to float32 for memory efficiency
     # Save results if needed
     save_npz_stream(full_save_path, prefix='dfc_stream', dfc_stream=dfc_stream)
     return dfc_stream
 
-#Deprecated
-def compute_dfc_stream_old(ts_data, window_size=7, lag=1, format_data='3D',save_path=None, n_jobs=-1):
+def handler_tnet_analysis(ts_data, prefix='dfc', window_size=7, lag=1, format_data='3D', save_path=None, n_jobs=-1):
     """
-    This function calculates dynamic functional connectivity (DFC) streams from time-series data using 
-    a sliding window approach. It supports parallel computation and caching of results 
-    to optimize performance.
+    Calculate temporal network analysis (dfc_stream, meta-connectivity) for time-series data.
 
-    -----------
-    ts_data : np.ndarray
-        A 3D array of shape (n_animals, n_timepoints, n_regions) representing the 
-        time-series data for multiple animals and brain regions.
-    window_size : int, optional
-        The size of the sliding window used for dynamic functional connectivity (DFC) 
-        computation. Default is 7.
-    lag : int, optional
-        The lag parameter for time-series analysis. Default is 1.
-    return_dfc : bool, optional
-        If True, the function also returns the DFC stream. Default is False.
-    save_path : str or None, optional
-        The directory path where the computed meta-connectivity and DFC stream will 
-        be saved. If None, results are not saved. Default is None.
-    n_jobs : int, optional
-        The number of parallel jobs to use for computation. Use -1 to utilize all 
-        available CPU cores. Default is -1.
+    Parameters:
+        ts_data (np.ndarray): 3D array (n_animals, n_regions, n_timepoints).
+        window_size (int): Sliding window size.
+        lag (int): Step size for the sliding window.
+        format_data (str): '2D' for vectorized, '3D' for matrices.
+        save_path (str): Directory to save results.
+        n_jobs (int): Number of parallel jobs (-1 for all cores).
 
-    --------
-    mc : np.ndarray
-        A 3D array of meta-connectivity matrices for each animal.
-    dfc_stream : np.ndarray, optional
-        A 4D array of DFC streams for each animal, returned only if `return_dfc` is True.
-
-    Notes:
-    ------
-    - If a `save_path` is provided and a cached result exists, the function will load 
-      the cached data instead of recomputing it.
-    - The function uses joblib for parallel computation, with the "loky" backend.
-    - The meta-connectivity matrices are computed by correlating the DFC streams.
-
-    Examples:
-    ---------
-    # Example usage:
-    mc = compute_metaconnectivity(ts_data, window_size=10, lag=2, save_path="./cache")
-    mc, dfc_stream = compute_metaconnectivity(ts_data, return_dfc=True, n_jobs=4)
+    Returns:
+        np.ndarray: 4D array of DFC streams (n_animals, time_windows, roi, roi)
     """
+    logger = logging.getLogger(__name__)
 
-    n_animals, tr_points, nodes  = ts_data.shape
-    dfc_stream  = None
-    mc          = None
-    dfc_stream_loaded = False  # <- initialize this early
+    n_animals, _, nodes = ts_data.shape
+    # Define the full save path based on parameters
+    full_save_path = make_save_path(save_path, prefix, window_size, lag, n_animals, nodes)
+    # get_save_path(save_path, window_size, lag, n_animals, nodes)
+    # Load from cache if possible
+    print(f"full_save_path: {full_save_path}")
+    if full_save_path is not None and full_save_path.exists():
+        if prefix == 'dfc':
+            return load_npz_cache(full_save_path, key="dfc_stream", label='dfc-stream')
+        else:
+            return load_npz_cache(full_save_path, key=prefix, label='meta-connectivity')
+            # dfc_stream = load_cached_dfc(full_save_path)
 
+    # Compute tnet streams in parallel
+    logger.info(f"Computing {prefix} (window_size={window_size}, lag={lag})...")
 
-    # File path setup
-    save_path = Path(save_path) if save_path else None
-    full_save_path = (
-        save_path / f"dfc_window_size={window_size}_lag={lag}_animals={n_animals}_regions={nodes}.npz"
-        if save_path else None
-    )
-    if full_save_path:
-        full_save_path.parent.mkdir(parents=True, exist_ok=True)
-        # full_save_path = os.path.join(save_path, f'mc_window_size={window_size}_lag={lag}_animals={n_animals}_regions={nodes}.npz')
-        # os.makedirs(os.path.dirname(full_save_path), exist_ok=True)
-    print(full_save_path)
-    # Load from cache
-    if full_save_path and full_save_path.exists():
-        try:
-            print(f"Loading dFC stream from: {full_save_path}")
-            data = np.load(full_save_path, allow_pickle=True)
-            dfc_stream = data['dfc_stream']
-            dfc_stream_loaded = True
-        except Exception as e:
-            print(f"Failed to load cached dFC stream (reason: {e}). Recomputing...")
-
-    if not dfc_stream_loaded:
-        print(f"Computing dFC stream in parallel (window_size={window_size}, lag={lag})...")
-
-        # Parallel DFC stream computation per animal
-        with parallel_backend("loky", n_jobs=n_jobs):
-            dfc_stream_list = Parallel()(
-                delayed(ts2dfc_stream)(ts_data[i], window_size, lag, format_data=format_data)
-                # for i in tqdm(range(n_animals), desc="DFC Streams")
-                for i in range(n_animals)
-            )
-        dfc_stream = np.stack(dfc_stream_list)
-
-    # Save results if path is provided
-    if full_save_path:
-        print(f"Saving dFC stream to: {full_save_path}")
-        np.savez_compressed(full_save_path, dfc_stream=dfc_stream)
+    dfc_stream = np.array([ts2dfc_stream(
+        ts_data[i], window_size, lag, format_data) 
+        for i in range(n_animals)])
+    # with parallel_backend("loky", n_jobs=n_jobs):
+    #     dfc_stream = np.stack(Parallel()(
+    #         delayed(ts2dfc_stream)(ts_data[i], window_size, lag, format_data) for i in range(n_animals)
+    #     ))
+    dfc_stream = dfc_stream.astype(np.float32)  # Convert to float32 for memory efficiency
+    # Save results if needed
+    save_npz_stream(full_save_path, prefix='dfc_stream', dfc_stream=dfc_stream)
     return dfc_stream
 
 #%%
