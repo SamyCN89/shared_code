@@ -22,15 +22,18 @@ Created on Fri Mar  8 15:45:43 2024
 from pathlib import Path
 import numpy as np
 import brainconn as bct
+import time 
 
 from tqdm import tqdm
 import numexpr as ne
-from joblib import Parallel, delayed, parallel_backend
+from joblib import Parallel, delayed, parallel_backend, cpu_count
 from collections import Counter
 import logging
 
-from .fun_optimization import fast_corrcoef, fast_corrcoef_numba
+from .fun_optimization import *
 from .fun_loaddata import *
+
+logger = logging.getLogger(__name__)
 
 #%%
 # =============================================================================
@@ -145,37 +148,9 @@ def ts2dfc_stream(ts, window_size, lag=None, format_data='2D', method='pearson')
 
     return dfc_stream
 
-
-def dfc_stream2fcd(dfc_stream):
+def handler_get_tenet(ts_data, prefix, window_size, lag, format_data='2D', save_path=None):
     """
-    Calculate the dynamic functional connectivity (dFC) matrix from a dfc_stream.
-    
-    Parameters:
-    dfc_stream (numpy.ndarray): Input dynamic functional connectivity stream, can be 2D or 3D.
-    
-    Returns:
-    numpy.ndarray: The dFC matrix computed as the correlation of the dfc_stream.
-    """
-    if dfc_stream.ndim < 2 or dfc_stream.ndim > 3:
-        raise ValueError("Provide a valid size dfc_stream (2D or 3D)!")
-    # Convert 3D dfc_stream to 2D if necessary
-  
-    if dfc_stream.ndim == 3:
-        dfc_stream_2D = matrix2vec(dfc_stream)
-    else:
-        dfc_stream_2D = dfc_stream
-
-    # Compute dFC
-    dfc_stream_2D = dfc_stream_2D.T
-    dfc = np.corrcoef(dfc_stream_2D)
-    
-    return dfc
-#%%
-logger = logging.getLogger(__name__)
-
-def compute_dfc_stream(ts_data, window_size=7, lag=1, format_data='3D', save_path=None, n_jobs=-1):
-    """
-    Calculate dynamic functional connectivity (DFC) streams for time-series data.
+    Generate temporal networks (dfc_stream, meta-connectivity) for time-series data.
 
     Parameters:
         ts_data (np.ndarray): 3D array (n_animals, n_regions, n_timepoints).
@@ -183,88 +158,212 @@ def compute_dfc_stream(ts_data, window_size=7, lag=1, format_data='3D', save_pat
         lag (int): Step size for the sliding window.
         format_data (str): '2D' for vectorized, '3D' for matrices.
         save_path (str): Directory to save results.
-        n_jobs (int): Number of parallel jobs (-1 for all cores).
 
     Returns:
         np.ndarray: 4D array of DFC streams (n_animals, time_windows, roi, roi)
     """
+
     logger = logging.getLogger(__name__)
-
-    n_animals, _, nodes = ts_data.shape
-    file_path = make_file_path(save_path, "dfc", window_size, lag, n_animals, nodes)
-    # get_save_path(save_path, window_size, lag, n_animals, nodes)
-
-    print(f"file_path: {file_path}")
-    # Load from cache if possible
-    if file_path is not None and file_path.exists():
-        return load_from_cache(file_path, key="dfc_stream", label='dfc-stream')
-        # dfc_stream = load_cached_dfc(file_path)
-
-    # Compute DFC streams in parallel
-    logger.info(f"Computing dFC stream in parallel (window_size={window_size}, lag={lag})...")
-    with parallel_backend("loky", n_jobs=n_jobs):
-        dfc_stream = np.stack(Parallel()(
-            delayed(ts2dfc_stream)(ts_data[i], window_size, lag, format_data) for i in range(n_animals)
-        ))
-    dfc_stream = dfc_stream.astype(np.float32)  # Convert to float32 for memory efficiency
-    # Save results if needed
-    save2disk(file_path, prefix='dfc_stream', dfc_stream=dfc_stream)
-    return dfc_stream
-
-def handler_get_tenet(ts_data, prefix='dfc', window_size=7, lag=1, format_data='3D', save_path=None, n_jobs=-1):
-    """
-    Calculate temporal network analysis (dfc_stream, meta-connectivity) for time-series data.
-
-    Parameters:
-        ts_data (np.ndarray): 3D array (n_animals, n_regions, n_timepoints).
-        window_size (int): Sliding window size.
-        lag (int): Step size for the sliding window.
-        format_data (str): '2D' for vectorized, '3D' for matrices.
-        save_path (str): Directory to save results.
-        n_jobs (int): Number of parallel jobs (-1 for all cores).
-
-    Returns:
-        np.ndarray: 4D array of DFC streams (n_animals, time_windows, roi, roi)
-    """
-    logger = logging.getLogger(__name__)
-
-    #Set the parameters for the dfc_stream
     n_animals, _, nodes = ts_data.shape
 
     # Define the full save path based on parameters and save_path folder
     file_path = make_file_path(save_path, prefix, window_size, lag, n_animals, nodes)
+    logger.info(f'file path: {file_path}')
 
-    # Load from cache if possible
-    print(f"file_path: {file_path}")
+    #try loading from cache
+    key = 'dfc_stream' if prefix == 'dfc' else prefix
+    label = "dfc-stream" if prefix == "dfc" else "meta-connectivity"
     if file_path is not None and file_path.exists():
-        if prefix == 'dfc':
-            return load_from_cache(file_path, key="dfc_stream", label='dfc-stream')
-        else:
-            return load_from_cache(file_path, key=prefix, label='meta-connectivity')
-            # dfc_stream = load_cached_dfc(file_path)
+        logger.info(f"Loading from cache: {file_path}")
+        try:
+            return load_from_cache(file_path, key=key, label=label)
+        except Exception as e:
+            logger.error(f"Failed to load {label} (reason: {e}). Recomputing...")
 
-    # Compute tenet streams in parallel
+    # Compute in parallel
     logger.info(f"Computing {prefix} (window_size={window_size}, lag={lag})...")
-
-    dfc_stream = np.array([ts2dfc_stream(
+    results = np.array([ts2dfc_stream(
         ts_data[i], window_size, lag, format_data) 
-        for i in range(n_animals)])
-    # with parallel_backend("loky", n_jobs=n_jobs):
-    #     dfc_stream = np.stack(Parallel()(
-    #         delayed(ts2dfc_stream)(ts_data[i], window_size, lag, format_data) for i in range(n_animals)
-    #     ))
-    dfc_stream = dfc_stream.astype(np.float32)  # Convert to float32 for memory efficiency
-    # get_save_path(save_path, window_size, lag, n_animals, nodes)
-    # Save results if needed
-    save2disk(file_path, prefix='dfc_stream', dfc_stream=dfc_stream)
-    return dfc_stream
+        for i in tqdm(range(n_animals), desc=f'Computing {label}')])
+
+    results = results.astype(np.float32)  # Convert to float32 for memory efficiency
+    #Save results
+    try:
+        save2disk(file_path, prefix, key=results)
+        logger.info(f'Saved results to {file_path}')
+    except Exception as e:
+        logger.error(f'Failed to save results: {e}')
+    return results
+
+def compute4window(ws, ts, prefix, lag, save_path):
+    """
+    Compute the analysis for a single window size.
+    """ 
+    logger = logging.getLogger(__name__)
+    try:
+        logger.info(f"Starting {prefix} computation for window_size={ws}")
+        start = time.time()
+        handler_get_tenet(
+            ts,
+            prefix=prefix,
+            window_size=ws,
+            lag=lag,
+            save_path=save_path,
+        )
+        logger.info(f"Finished window_size={ws} in {time.time()-start:.2f} seconds")
+    except Exception as e:
+        logger.error(f"Error during {prefix} computation for window_size={ws}: {e}")
+        raise
+
+def get_tenet4window_range(ts, time_window_range, prefix, paths, lag, n_animals, regions, processors=-1):
+    """
+    Get the range of window sizes for tenet files. 'DC AND 'MC' are the two prefixes implemented.
+    Args:
+        ts (roi, timepoints): Time series data.
+        time_window_range (list): List of time window sizes.
+        prefix (str): Prefix for the tenet files. 'dfc' for dynamic functional connectivity.
+                   'mc' for meta-connectivity analysis.        
+        lag (int): Lag value for the analysis.
+        n_animals (int): Number of animals in the dataset.
+        regions (list): List of regions in the dataset.
+        processors (int): joblib. Number of processors to use for parallel computation.
+    Returns:
+        None
+    """
+    try:
+        save_path = paths.get(prefix)
+        if not save_path:
+            raise ValueError(f"Invalid prefix '{prefix}'. Save path not found in paths dictionary.")
+        # Run parallel dfc stream over window sizes
+
+        #set the processors
+        processors = min(processors, cpu_count())
+        logging.info(f'Starting analysis for {prefix}, n_jobs={processors}')
+
+        start = time.time()
+        Parallel(n_jobs=min(processors, len(time_window_range)))(
+            delayed(compute4window)(ws, ts, prefix, lag, save_path) 
+            for ws in tqdm(time_window_range, desc=f'Window sizes')
+        )
+        logging.info(f'{prefix} computation time {time.time()-start:.2f} seconds')
+
+        # Handle missing files and rerun if necessary
+        missing_files = check_and_rerun_missing_files(
+            save_path, prefix, time_window_range, lag, n_animals, regions
+        )
+        if missing_files:
+            logging.warning(f"Missing files detected for {prefix}: {missing_files}")
+            time_window_range = np.array(missing_files)
+            # Rerun for missing files
+            Parallel(n_jobs=min(processors, len(time_window_range)))(
+                delayed(compute4window)(ws, ts, prefix, lag, save_path) for ws in time_window_range
+            )
+    except Exception as e:
+        logger.error(f"Error occurred during {prefix} computation: {e}")
+        raise
+
+#%%
+
+
+# def compute_dfc_stream(ts_data, window_size=7, lag=1, format_data='3D', save_path=None, n_jobs=-1):
+#     """
+#     Calculate dynamic functional connectivity (DFC) streams for time-series data.
+
+#     Parameters:
+#         ts_data (np.ndarray): 3D array (n_animals, n_regions, n_timepoints).
+#         window_size (int): Sliding window size.
+#         lag (int): Step size for the sliding window.
+#         format_data (str): '2D' for vectorized, '3D' for matrices.
+#         save_path (str): Directory to save results.
+#         n_jobs (int): Number of parallel jobs (-1 for all cores).
+
+#     Returns:
+#         np.ndarray: 4D array of DFC streams (n_animals, time_windows, roi, roi)
+#     """
+#     logger = logging.getLogger(__name__)
+
+#     n_animals, _, nodes = ts_data.shape
+#     file_path = make_file_path(save_path, "dfc", window_size, lag, n_animals, nodes)
+#     # get_save_path(save_path, window_size, lag, n_animals, nodes)
+
+#     print(f"file_path: {file_path}")
+#     # Load from cache if possible
+#     if file_path is not None and file_path.exists():
+#         return load_from_cache(file_path, key="dfc_stream", label='dfc-stream')
+#         # dfc_stream = load_cached_dfc(file_path)
+
+#     # Compute DFC streams in parallel
+#     logger.info(f"Computing dFC stream in parallel (window_size={window_size}, lag={lag})...")
+#     with parallel_backend("loky", n_jobs=n_jobs):
+#         dfc_stream = np.stack(Parallel()(
+#             delayed(ts2dfc_stream)(ts_data[i], window_size, lag, format_data) for i in range(n_animals)
+#         ))
+#     dfc_stream = dfc_stream.astype(np.float32)  # Convert to float32 for memory efficiency
+#     # Save results if needed
+#     save2disk(file_path, prefix='dfc_stream', dfc_stream=dfc_stream)
+#     return dfc_stream
+
+# def handler_get_tenet(ts_data, prefix='dfc', window_size=7, lag=1, format_data='3D', save_path=None, n_jobs=-1):
+#     """
+#     Calculate temporal network analysis (dfc_stream, meta-connectivity) for time-series data.
+
+#     Parameters:
+#         ts_data (np.ndarray): 3D array (n_animals, n_regions, n_timepoints).
+#         window_size (int): Sliding window size.
+#         lag (int): Step size for the sliding window.
+#         format_data (str): '2D' for vectorized, '3D' for matrices.
+#         save_path (str): Directory to save results.
+#         n_jobs (int): Number of parallel jobs (-1 for all cores).
+
+#     Returns:
+#         np.ndarray: 4D array of DFC streams (n_animals, time_windows, roi, roi)
+#     """
+#     logger = logging.getLogger(__name__)
+
+#     #Set the parameters for the dfc_stream
+#     n_animals, _, nodes = ts_data.shape
+
+#     # Define the full save path based on parameters and save_path folder
+#     file_path = make_file_path(save_path, prefix, window_size, lag, n_animals, nodes)
+
+#     # Load from cache if possible
+#     print(f"file_path: {file_path}")
+#     if file_path is not None and file_path.exists():
+#         if prefix == 'dfc':
+#             return load_from_cache(file_path, key="dfc_stream", label='dfc-stream')
+#         else:
+#             return load_from_cache(file_path, key=prefix, label='meta-connectivity')
+#             # dfc_stream = load_cached_dfc(file_path)
+
+#     # Compute tenet streams in parallel
+#     logger.info(f"Computing {prefix} (window_size={window_size}, lag={lag})...")
+
+#     dfc_stream = np.array([ts2dfc_stream(
+#         ts_data[i], window_size, lag, format_data) 
+#         for i in range(n_animals)])
+#     # with parallel_backend("loky", n_jobs=n_jobs):
+#     #     dfc_stream = np.stack(Parallel()(
+#     #         delayed(ts2dfc_stream)(ts_data[i], window_size, lag, format_data) for i in range(n_animals)
+#     #     ))
+#     dfc_stream = dfc_stream.astype(np.float32)  # Convert to float32 for memory efficiency
+#     # get_save_path(save_path, window_size, lag, n_animals, nodes)
+#     # Save results if needed
+#     save2disk(file_path, prefix='dfc_stream', dfc_stream=dfc_stream)
+#     return dfc_stream
+ 
+
+
+
+
+
+
 
 #%%
 # =============================================================================
-# Speed functions from dFC data
+# Speed functions from dFC data - move to fun_speed
 # =============================================================================
 
-def dfc_speed(dfc_stream, vstep=1):
+def dfc_speed(dfc_stream, vstep=1, tril_indices=None, return_fc2=False):
     """
     Calculate speeds of variation in dfc over a specified step size.
     
@@ -278,27 +377,37 @@ def dfc_speed(dfc_stream, vstep=1):
     """
     # Check the dimensionality of dfc_stream and process accordingly
     if dfc_stream.ndim == 3:
-        # Assuming a reshapedfc_stream function exists to convert 3D dfc_stream to 2D
-        fc_stream = dfc_stream.reshape(dfc_stream.shape[0]*dfc_stream.shape[1], dfc_stream.shape[2])
+        n = dfc_stream.shape[0]
+        if tril_indices is None:
+            tril_indices = np.tril_indices(n, k=-1)
+        # Flatten to (n_pairs, frames)
+        fc_stream = dfc_stream[tril_indices[0], tril_indices[1], :]
     elif dfc_stream.ndim == 2:
         fc_stream = dfc_stream
     else:
-        raise ValueError("Provide a valid 2D or 3D dFC stream!")
-    
-    nslices = fc_stream.shape[1]
-    speeds = np.empty(nslices - vstep)
+        raise ValueError("Provide a valid 2D (n_pairs, frames) or 3D (roi, roi, frames) dFC stream!")
+
+    # Ensure
+    n_frames = fc_stream.shape[1]
+    speeds = np.empty(n_frames - vstep)
+    if return_fc2:
+        fc2_stream = np.empty((fc_stream.shape[0], n_frames - vstep))
     # speeds = []
 
     # Compute speeds using correlation distance
     # for sp in range(nslices - vstep):
-    for sp in range(nslices - vstep):
+    for sp in range(n_frames - vstep):
         fc1 = fc_stream[:, sp]
         fc2 = fc_stream[:, sp + vstep]
         # Directly compute the Pearson correlation coefficient (faster than fast_corrcoef)
         covariance = np.cov(fc1, fc2)
         correlation = covariance[0, 1] / np.sqrt(covariance[0, 0] * covariance[1, 1])
         speeds[sp] = 1 - correlation
+        if return_fc2:
+            fc2_stream[:, sp] = fc2
 
+    if return_fc2:
+        return np.median(speeds), speeds, fc2_stream
     return np.median(speeds), speeds
 
 
@@ -344,10 +453,12 @@ def dfc_speed_oversampled_series(ts, window_parameter, lag=1, tau=3, min_tau_zer
     else:
         min_tau=-tau
     
+    # time window parameters
     time_windows_min, time_windows_max, time_window_step = window_parameter
     time_windows_range = np.arange(time_windows_min,time_windows_max+1,time_window_step)
     tau_array       = np.append(np.arange(min_tau, tau), tau ) 
     
+    # speed parameters
     speed_windows_tau = np.zeros((len(time_windows_range), len(tau_array)))
     speed_dist    = []
     
@@ -419,6 +530,40 @@ def parallel_dfc_speed_oversampled_series(ts, window_parameter, lag=1, tau=3,
         return np.array(speed_medians), speed_dists
     else:
         return np.array(speed_medians)
+#%%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #%%
 # =============================================================================

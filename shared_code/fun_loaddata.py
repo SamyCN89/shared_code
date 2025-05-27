@@ -16,7 +16,7 @@ import numpy as np
 import os
 from scipy.io import loadmat
 from joblib import Parallel, delayed, parallel_backend
-# from .fun_dfcspeed import compute_for_1_window_new
+# from .fun_dfcspeed import compute4window_new
 
 #%%
 def make_file_path(save_path, prefix, window_size, lag, n_animals, nodes):
@@ -85,7 +85,7 @@ def save2disk(save_path, prefix, **data):
     if save_path:
         # file_path = save_path / f"{prefix}_window_size={window_size}_lag={lag}_animals={n_animals}_regions={nodes}.npz"
         print(f"Saving {prefix} stream to: {save_path}")
-        np.savez_compressed(save_path, **data)
+        np.savez_compressed(save_path, **data, allow_pickle=True)
         return save_path
     return None
 
@@ -140,7 +140,7 @@ def check_and_rerun_missing_files(paths, prefix, time_window_range, lag, n_anima
     else:
         print(f"Missing {prefix} files for window sizes:", missing_files)
         Parallel(n_jobs=min(PROCESSORS, len(missing_files)))(
-            delayed(compute_for_1_window_new)(ws, prefix) for ws in missing_files
+            delayed(compute4window_new)(ws, prefix) for ws in missing_files
         )
     return missing_files
 

@@ -325,6 +325,31 @@ def matrix2vec(matrix3d):
     #F: Frame, n: node
     F, n, _ = matrix3d.T.shape  # Assuming matrix3d shape is [F, n, n]
     return matrix3d.reshape((n*n,F))
+
+def dfc_stream2fcd(dfc_stream):
+    """
+    Calculate the dynamic functional connectivity (dFC) matrix from a dfc_stream.
+    
+    Parameters:
+    dfc_stream (numpy.ndarray): Input dynamic functional connectivity stream, can be 2D or 3D.
+    
+    Returns:
+    numpy.ndarray: The dFC matrix computed as the correlation of the dfc_stream.
+    """
+    if dfc_stream.ndim < 2 or dfc_stream.ndim > 3:
+        raise ValueError("Provide a valid size dfc_stream (2D or 3D)!")
+    # Convert 3D dfc_stream to 2D if necessary
+  
+    if dfc_stream.ndim == 3:
+        dfc_stream_2D = matrix2vec(dfc_stream)
+    else:
+        dfc_stream_2D = dfc_stream
+
+    # Compute dFC
+    dfc_stream_2D = dfc_stream_2D.T
+    dfc = np.corrcoef(dfc_stream_2D)
+    
+    return dfc
 # =============================================================================
 # Set Figure Params
 # =============================================================================
