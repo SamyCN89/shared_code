@@ -16,10 +16,10 @@ import numpy as np
 import os
 from scipy.io import loadmat
 from joblib import Parallel, delayed, parallel_backend
-# from .fun_dfcspeed import compute_for_window_size_new
+# from .fun_dfcspeed import compute_for_1_window_new
 
 #%%
-def make_save_path(save_path, prefix, window_size, lag, n_animals, nodes):
+def make_file_path(save_path, prefix, window_size, lag, n_animals, nodes):
     """
     Generate a consistent save path for cached files.
 
@@ -40,12 +40,12 @@ def make_save_path(save_path, prefix, window_size, lag, n_animals, nodes):
         return save_path / f"{prefix}_window_size={window_size}_lag={lag}_animals={n_animals}_regions={nodes}.npz"
     return None
 
-def load_npz_cache(full_save_path, key, logger=None, label=None):
+def load_from_cache(file_path, key, logger=None, label=None):
     """
     Load a value from an npz cache file by key.
 
     Args:
-        full_save_path (Path or str): Path to the .npz file.
+        file_path (Path or str): Path to the .npz file.
         key (str): Key to extract from the npz file (e.g., 'mc', 'dfc_stream').
         logger (logging.Logger, optional): Logger for info messages.
         label (str, optional): Label to use in printed/logged messages.
@@ -53,23 +53,23 @@ def load_npz_cache(full_save_path, key, logger=None, label=None):
     Returns:
         The value from the npz file for the specified key, or None if not found.
     """
-    if full_save_path and Path(full_save_path).exists():
-        msg = f"Loading {label or key} from: {full_save_path}"
+    if file_path and Path(file_path).exists():
+        msg = f"Loading {label or key} from: {file_path}"
         if logger:
             logger.info(msg)
         print(msg)
         try:
-            data = np.load(full_save_path, allow_pickle=True)
+            data = np.load(file_path, allow_pickle=True)
             if key in data:
                 return data[key]
             else:
-                print(f"Key '{key}' not found in cache file: {full_save_path}")
+                print(f"Key '{key}' not found in cache file: {file_path}")
         except Exception as e:
             print(f"Failed to load cached {label or key} (reason: {e}). Recomputing...")
     return None
         
 
-def save_npz_stream(save_path, prefix, **data):
+def save2disk(save_path, prefix, **data):
     """
     Generate a save path and save data as a compressed npz file.
 
@@ -83,7 +83,7 @@ def save_npz_stream(save_path, prefix, **data):
     """
     print('here')
     if save_path:
-        # full_save_path = save_path / f"{prefix}_window_size={window_size}_lag={lag}_animals={n_animals}_regions={nodes}.npz"
+        # file_path = save_path / f"{prefix}_window_size={window_size}_lag={lag}_animals={n_animals}_regions={nodes}.npz"
         print(f"Saving {prefix} stream to: {save_path}")
         np.savez_compressed(save_path, **data)
         return save_path
@@ -109,15 +109,15 @@ def get_missing_files(paths, prefix, time_window_range, lag, n_animals, roi, siz
     missing_files = []
     for ws in time_window_range:
         # 1. Check the existence of the file for each window size
-        full_save_path = make_save_path(paths, prefix, ws, lag, n_animals, roi)
-        if not full_save_path.exists():
+        file_path = make_file_path(paths, prefix, ws, lag, n_animals, roi)
+        if not file_path.exists():
             missing_files.append(ws)
         # 2. Check if the file is empty or corrupt (less than 1 MB)
         else:
-            if full_save_path.stat().st_size < size_threshold:  # This will raise an error if the file is not valid
+            if file_path.stat().st_size < size_threshold:  # This will raise an error if the file is not valid
                 # Remove the file if it's empty or corrupt
-                print(f"File {full_save_path} exists but is empty or corrupt. Removing it.")
-                full_save_path.unlink(missing_ok=True)
+                print(f"File {file_path} exists but is empty or corrupt. Removing it.")
+                file_path.unlink(missing_ok=True)
                 missing_files.append(ws)
     return missing_files
 
@@ -140,7 +140,7 @@ def check_and_rerun_missing_files(paths, prefix, time_window_range, lag, n_anima
     else:
         print(f"Missing {prefix} files for window sizes:", missing_files)
         Parallel(n_jobs=min(PROCESSORS, len(missing_files)))(
-            delayed(compute_for_window_size_new)(ws, prefix) for ws in missing_files
+            delayed(compute_for_1_window_new)(ws, prefix) for ws in missing_files
         )
     return missing_files
 

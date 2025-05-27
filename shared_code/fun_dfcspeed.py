@@ -191,14 +191,14 @@ def compute_dfc_stream(ts_data, window_size=7, lag=1, format_data='3D', save_pat
     logger = logging.getLogger(__name__)
 
     n_animals, _, nodes = ts_data.shape
-    full_save_path = make_save_path(save_path, "dfc", window_size, lag, n_animals, nodes)
+    file_path = make_file_path(save_path, "dfc", window_size, lag, n_animals, nodes)
     # get_save_path(save_path, window_size, lag, n_animals, nodes)
 
-    print(f"full_save_path: {full_save_path}")
+    print(f"file_path: {file_path}")
     # Load from cache if possible
-    if full_save_path is not None and full_save_path.exists():
-        return load_npz_cache(full_save_path, key="dfc_stream", label='dfc-stream')
-        # dfc_stream = load_cached_dfc(full_save_path)
+    if file_path is not None and file_path.exists():
+        return load_from_cache(file_path, key="dfc_stream", label='dfc-stream')
+        # dfc_stream = load_cached_dfc(file_path)
 
     # Compute DFC streams in parallel
     logger.info(f"Computing dFC stream in parallel (window_size={window_size}, lag={lag})...")
@@ -208,10 +208,10 @@ def compute_dfc_stream(ts_data, window_size=7, lag=1, format_data='3D', save_pat
         ))
     dfc_stream = dfc_stream.astype(np.float32)  # Convert to float32 for memory efficiency
     # Save results if needed
-    save_npz_stream(full_save_path, prefix='dfc_stream', dfc_stream=dfc_stream)
+    save2disk(file_path, prefix='dfc_stream', dfc_stream=dfc_stream)
     return dfc_stream
 
-def handler_tnet_analysis(ts_data, prefix='dfc', window_size=7, lag=1, format_data='3D', save_path=None, n_jobs=-1):
+def handler_get_tenet(ts_data, prefix='dfc', window_size=7, lag=1, format_data='3D', save_path=None, n_jobs=-1):
     """
     Calculate temporal network analysis (dfc_stream, meta-connectivity) for time-series data.
 
@@ -228,20 +228,22 @@ def handler_tnet_analysis(ts_data, prefix='dfc', window_size=7, lag=1, format_da
     """
     logger = logging.getLogger(__name__)
 
+    #Set the parameters for the dfc_stream
     n_animals, _, nodes = ts_data.shape
-    # Define the full save path based on parameters
-    full_save_path = make_save_path(save_path, prefix, window_size, lag, n_animals, nodes)
-    # get_save_path(save_path, window_size, lag, n_animals, nodes)
-    # Load from cache if possible
-    print(f"full_save_path: {full_save_path}")
-    if full_save_path is not None and full_save_path.exists():
-        if prefix == 'dfc':
-            return load_npz_cache(full_save_path, key="dfc_stream", label='dfc-stream')
-        else:
-            return load_npz_cache(full_save_path, key=prefix, label='meta-connectivity')
-            # dfc_stream = load_cached_dfc(full_save_path)
 
-    # Compute tnet streams in parallel
+    # Define the full save path based on parameters and save_path folder
+    file_path = make_file_path(save_path, prefix, window_size, lag, n_animals, nodes)
+
+    # Load from cache if possible
+    print(f"file_path: {file_path}")
+    if file_path is not None and file_path.exists():
+        if prefix == 'dfc':
+            return load_from_cache(file_path, key="dfc_stream", label='dfc-stream')
+        else:
+            return load_from_cache(file_path, key=prefix, label='meta-connectivity')
+            # dfc_stream = load_cached_dfc(file_path)
+
+    # Compute tenet streams in parallel
     logger.info(f"Computing {prefix} (window_size={window_size}, lag={lag})...")
 
     dfc_stream = np.array([ts2dfc_stream(
@@ -252,8 +254,9 @@ def handler_tnet_analysis(ts_data, prefix='dfc', window_size=7, lag=1, format_da
     #         delayed(ts2dfc_stream)(ts_data[i], window_size, lag, format_data) for i in range(n_animals)
     #     ))
     dfc_stream = dfc_stream.astype(np.float32)  # Convert to float32 for memory efficiency
+    # get_save_path(save_path, window_size, lag, n_animals, nodes)
     # Save results if needed
-    save_npz_stream(full_save_path, prefix='dfc_stream', dfc_stream=dfc_stream)
+    save2disk(file_path, prefix='dfc_stream', dfc_stream=dfc_stream)
     return dfc_stream
 
 #%%

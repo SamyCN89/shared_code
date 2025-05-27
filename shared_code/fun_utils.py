@@ -60,15 +60,15 @@ def get_paths(
         # Load dataset paths
         'timeseries': dataset / f'{timecourse_folder}',
         'cog_data': dataset / f'{timecourse_folder}/{cognitive_data_file}',
-
+        # Results paths
         'results': results,
+        'sorted': results / 'sorted_data/',
         'mc': results / 'mc/',
         'dfc': results / 'dfc/',
-        'sorted': results / 'sorted_data/',
+        'speed': results / 'speed/',
         'mc_mod': results / 'mc_mod/',
         'allegiance': results / 'allegiance/',
         'trimers': results / 'trimers/',
-        'speed': results / 'speed/',
 
         #figures folders
         'figures': figures,
@@ -310,3 +310,9 @@ def set_figure_params(savefig=False):
     })
     if savefig==True:
         return savefig
+
+def check_symmetric(a, rtol=1e-05, atol=1e-08):
+    """
+    Check if the matrix a is symmetric
+    """
+    return np.allclose(a, a.T, rtol=rtol, atol=atol)

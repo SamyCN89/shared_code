@@ -57,10 +57,10 @@ def compute_metaconnectivity(ts_data, window_size=7, lag=1, save_path=None, n_jo
     - mc: 3D numpy array of shape (n_animals, n_regions, n_regions) representing the meta-connectivity matrices
     """
     n_animals, _, nodes = ts_data.shape
-    full_save_path = make_save_path(save_path, "mc", window_size, lag, n_animals, nodes)
+    file_path = make_file_path(save_path, "mc", window_size, lag, n_animals, nodes)
     # Load from cache if available
-    if full_save_path is not None and full_save_path.exists():
-        return load_npz_cache(full_save_path, key="mc", label='meta-connectivity')
+    if file_path is not None and file_path.exists():
+        return load_from_cache(file_path, key="mc", label='meta-connectivity')
 
     # Compute meta-connectivity in parallel
     with parallel_backend("loky", n_jobs=n_jobs):
@@ -71,10 +71,10 @@ def compute_metaconnectivity(ts_data, window_size=7, lag=1, save_path=None, n_jo
     # Stack results into a 3D array
     mc = np.stack(results)
     # Save results if a save path is provided
-    save_npz_stream(full_save_path, prefix='mc', mc=mc)
+    save2disk(file_path, prefix='mc', mc=mc)
     if save_path:
-        logger.info(f"Saving meta-connectivity to: {full_save_path}")
-        np.savez_compressed(full_save_path, mc=mc)
+        logger.info(f"Saving meta-connectivity to: {file_path}")
+        np.savez_compressed(file_path, mc=mc)
     return mc
 
 #%%
@@ -129,19 +129,19 @@ def compute_metaconnectivity_old(ts_data, window_size=7, lag=1, return_dfc=False
 
     # File path setup
     save_path = Path(save_path) if save_path else None
-    full_save_path = (
+    file_path = (
         save_path / f"mc_window_size={window_size}_lag={lag}_animals={n_animals}_regions={nodes}.npz"
         if save_path else None
     )
-    if full_save_path:
-        full_save_path.parent.mkdir(parents=True, exist_ok=True)
-        # full_save_path = os.path.join(save_path, f'mc_window_size={window_size}_lag={lag}_animals={n_animals}_regions={nodes}.npz')
-        # os.makedirs(os.path.dirname(full_save_path), exist_ok=True)
+    if file_path:
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        # file_path = os.path.join(save_path, f'mc_window_size={window_size}_lag={lag}_animals={n_animals}_regions={nodes}.npz')
+        # os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
     # Load from cache
-    if full_save_path and full_save_path.exists():
-        print(f"Loading meta-connectivity from: {full_save_path}")
-        data = np.load(full_save_path, allow_pickle=True)
+    if file_path and file_path.exists():
+        print(f"Loading meta-connectivity from: {file_path}")
+        data = np.load(file_path, allow_pickle=True)
         mc = data['mc']
         dfc_stream = data['dfc_stream'] if return_dfc and 'dfc_stream' in data else None
 
@@ -167,12 +167,12 @@ def compute_metaconnectivity_old(ts_data, window_size=7, lag=1, return_dfc=False
         mc = np.stack(mc_list)
 
         # Save results if path is provided
-        if full_save_path:
-            print(f"Saving meta-connectivity to: {full_save_path}")
+        if file_path:
+            print(f"Saving meta-connectivity to: {file_path}")
             if return_dfc:
-                np.savez_compressed(full_save_path, mc=mc, dfc_stream=dfc_stream if return_dfc else None)
+                np.savez_compressed(file_path, mc=mc, dfc_stream=dfc_stream if return_dfc else None)
             else:
-                np.savez_compressed(full_save_path, mc=mc)
+                np.savez_compressed(file_path, mc=mc)
     # print(f"Max RAM usage during run: {max(all_mem_use):.2f} MB")
     return (mc, dfc_stream) if return_dfc else mc
 
@@ -349,19 +349,19 @@ def fun_allegiance_communities(mc_data, n_runs=1000, gamma_pt=100, ref_name=None
 
     # Load from the cache if the file already exists 
 
-    full_save_path = None 
+    file_path = None 
     if save_path and ref_name:
         save_path = Path(save_path)
         save_path.mkdir(parents=True, exist_ok=True)
         safe_ref_name = ref_name.replace(" ", "_")
-        full_save_path = save_path / f"allegiance_{safe_ref_name}.joblib"
+        file_path = save_path / f"allegiance_{safe_ref_name}.joblib"
 
         # Load from cache if it exists
-        if full_save_path.exists():
-            print(f"[cache] Loading allegiance communities from {full_save_path}")
-            return joblib.load(full_save_path)
+        if file_path.exists():
+            print(f"[cache] Loading allegiance communities from {file_path}")
+            return joblib.load(file_path)
             # Uncomment the following lines if you want to use pickle instead of joblib
-            # with full_save_path.open('rb') as f:
+            # with file_path.open('rb') as f:
             #     return pickle.load(f)
    
     # Compute the contingency matrix
@@ -386,10 +386,10 @@ def fun_allegiance_communities(mc_data, n_runs=1000, gamma_pt=100, ref_name=None
     # Sort the communities 
     # communities = communities[sort_idx] 
     # Save the results if save_path and ref_name are provided
-    if full_save_path:
-        print(f"[cache] Saving allegiance communities to {full_save_path}")
+    if file_path:
+        print(f"[cache] Saving allegiance communities to {file_path}")
         # Save using joblib
-        joblib.dump((communities, sort_idx, contingency), full_save_path)
+        joblib.dump((communities, sort_idx, contingency), file_path)
     return communities, sort_idx, contingency  # Return the communities, sorting indices, and contingency matrix
 
 
