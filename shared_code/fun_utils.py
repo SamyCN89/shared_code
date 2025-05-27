@@ -6,12 +6,11 @@ Created on Sat Apr  5 00:18:49 2025
 @author: samy
 """
 #%%
+from pathlib import Path
 import numpy as np
 import os
-from pathlib import Path
 from scipy.io import loadmat
 import pandas as pd
-import matplotlib.pyplot as plt
 import pickle
 from dotenv import load_dotenv
 
@@ -110,6 +109,35 @@ def get_paths(
 
 def load_cognitive_data(path_to_csv: Path) -> pd.DataFrame:
     return pd.read_csv(path_to_csv)
+
+#General purpose
+def load_npz_dict(path_to_npz: Path) -> dict:
+    """
+    Load all arrays (and scalars) from an .npz file into a Python dict.
+
+    Parameters
+    ----------
+    path_to_npz : Path
+        Path to the .npz file.
+
+    Returns
+    -------
+    dict
+        A mapping from each key in the .npz to its value. 0-dim arrays
+        are converted to native Python scalars via .item().
+    """
+    data = np.load(path_to_npz, allow_pickle=True)
+    out = {}
+    for key in data.files:
+        arr = data[key]
+        # Convert 0-dim arrays to scalars
+        if isinstance(arr, np.ndarray) and arr.shape == ():
+            out[key] = arr.item()
+        else:
+            out[key] = arr
+    data.close()
+    return out
+
 
 def load_timeseries_data(path_to_npz: Path) -> dict:
     data = np.load(path_to_npz)
